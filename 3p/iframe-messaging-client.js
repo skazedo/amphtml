@@ -13,27 +13,62 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import './polyfills';
-import {listen} from '../src/event-helper';
-import {map} from '../src/types';
-import {user} from '../src/log';
-import {startsWith} from '../src/string';
+import {
+  CONSTANTS,
+  deserializeMessage,
+  listen,
+  serializeMessage,
+} from '../src/3p-frame-messaging';
+import {Observable} from '../src/observable';
+import {dev} from '../src/log';
+import {dict, map} from '../src/utils/object';
+import {getData} from '../src/event-helper';
+import {getMode} from '../src/mode';
 
 export class IframeMessagingClient {
-
   /**
-   *  @param {Window} win A window object.
+   *  @param {!Window} win A window object.
    */
   constructor(win) {
     /** @private {!Window} */
     this.win_ = win;
+    /** @private {?string} */
+    this.rtvVersion_ = getMode().rtvVersion || null;
+    /** @private {!Window} */
     this.hostWindow_ = win.parent;
-    /** Map messageType keys to callback functions for when we receive
-     *  that message
-     *  @private {!Object}
+    /** @private {?string} */
+    this.sentinel_ = null;
+    /** @type {number} */
+    this.nextMessageId_ = 1;
+    /**
+     * Map messageType keys to observables to be fired when messages of that
+     * type are received.
+     * @private {!Object}
      */
-    this.callbackFor_ = map();
+    this.observableFor_ = map();
     this.setupEventListener_();
+  }
+
+  /**
+   * Retrieves data from host.
+   *
+   * @param {string} requestType
+   * @param {?Object} payload
+   * @param {function(*)} callback
+   */
+  getData(requestType, payload, callback) {
+    const responseType = requestType + CONSTANTS.responseTypeSuffix;
+    const messageId = this.nextMessageId_++;
+    const unlisten = this.registerCallback(responseType, result => {
+      if (result[CONSTANTS.messageIdFieldName] === messageId) {
+        unlisten();
+        callback(result[CONSTANTS.contentFieldName]);
+      }
+    });
+    const data = dict();
+    data[CONSTANTS.payloadFieldName] = payload;
+    data[CONSTANTS.messageIdFieldName] = messageId;
+    this.sendMessage(requestType, data);
   }
 
   /**
@@ -41,11 +76,31 @@ export class IframeMessagingClient {
    *
    * @param {string} requestType The type of the request message.
    * @param {string} responseType The type of the response message.
-   * @param {function(object)} callback The callback function to call
+   * @param {function(JsonObject)} callback The callback function to call
    *   when a message with type responseType is received.
+   * @return {function()}
    */
   makeRequest(requestType, responseType, callback) {
     const unlisten = this.registerCallback(responseType, callback);
+    this.sendMessage(requestType);
+    return unlisten;
+  }
+
+  /**
+   * Make a one time event listening request to the host window.
+   * Will unlisten after response is received
+   *
+   * @param {string} requestType The type of the request message.
+   * @param {string} responseType The type of the response message.
+   * @param {function(Object)} callback The callback function to call
+   *   when a message with type responseType is received.
+   * @return {*} TODO(#23582): Specify return type
+   */
+  requestOnce(requestType, responseType, callback) {
+    const unlisten = this.registerCallback(responseType, event => {
+      unlisten();
+      callback(event);
+    });
     this.sendMessage(requestType);
     return unlisten;
   }
@@ -56,26 +111,51 @@ export class IframeMessagingClient {
    *   All future calls will overwrite any previously registered
    *   callbacks.
    * @param {string} messageType The type of the message.
-   * @param {function()} callback The callback function to call
+   * @param {function(?JsonObject)} callback The callback function to call
    *   when a message with type messageType is received.
+   * @return {function()}
    */
   registerCallback(messageType, callback) {
     // NOTE : no validation done here. any callback can be register
     // for any callback, and then if that message is received, this
     // class *will execute* that callback
-    this.callbackFor_[messageType] = callback;
-    return () => { delete this.callbackFor_[messageType]; };
+    return this.getOrCreateObservableFor_(messageType).add(callback);
   }
 
   /**
-   *  Send a postMessage to Host Window
-   *  @param {string} type The type of message to send.
-   *  @param {Object=} opt_payload The payload of message to send.
+   * Send a postMessage to Host Window
+   * @param {string} type The type of message to send.
+   * @param {JsonObject=} opt_payload The payload of message to send.
    */
   sendMessage(type, opt_payload) {
-    const message = {type, sentinel: this.sentinel_};
-    this.hostWindow_.postMessage/*OK*/(
-        Object.assign(message, opt_payload), '*');
+    const msg = serializeMessage(
+      type,
+      dev().assertString(this.sentinel_),
+      opt_payload,
+      this.rtvVersion_
+    );
+
+    // opt in the userActivation feature
+    // see https://github.com/dtapuska/useractivation
+    if (this.isMessageOptionsSupported_()) {
+      this.postMessageWithUserActivation_(msg);
+    } else {
+      this.hostWindow_./*OK*/ postMessage(msg, '*');
+    }
+  }
+
+  /**
+   * @param {string} msg
+   * @suppress {checkTypes} // Can be removed after closure compiler update their externs.
+   */
+  postMessageWithUserActivation_(msg) {
+    this.hostWindow_./*OK*/ postMessage(
+      msg,
+      dict({
+        'targetOrigin': '*',
+        'includeUserActivation': true,
+      })
+    );
   }
 
   /**
@@ -88,46 +168,63 @@ export class IframeMessagingClient {
    * @private
    */
   setupEventListener_() {
-    listen(this.win_, 'message', message => {
+    listen(this.win_, 'message', event => {
       // Does it look a message from AMP?
-      if (message.source != this.hostWindow_) {
-        return;
-      }
-      if (!message.data) {
-        return;
-      }
-      if (!startsWith(String(message.data), 'amp-')) {
+      if (event.source != this.hostWindow_) {
         return;
       }
 
-      // See if we can parse the payload.
-      try {
-        const payload = JSON.parse(message.data.substring(4));
-        // Check the sentinel as well.
-        if (payload.sentinel == this.sentinel_ &&
-            this.callbackFor_[payload.type]) {
-          try {
-            // We should probably report exceptions within callback
-            const callback = this.callbackFor_[payload.type];
-            callback(payload);
-          } catch (err) {
-            user().error(
-                'IFRAME-MSG',
-                `- Error in registered callback ${payload.type}`,
-                err);
-          }
-        }
-      } catch (e) {
-        // JSON parsing failed. Ignore the message.
+      const message = deserializeMessage(getData(event));
+      if (!message || message['sentinel'] != this.sentinel_) {
+        return;
       }
+
+      message['origin'] = event.origin;
+
+      this.fireObservable_(message['type'], message);
     });
   }
 
+  /**
+   * @param {!Window} win
+   */
   setHostWindow(win) {
     this.hostWindow_ = win;
   }
 
+  /**
+   * @param {string} sentinel
+   */
   setSentinel(sentinel) {
     this.sentinel_ = sentinel;
+  }
+
+  /**
+   * @param {string} messageType
+   * @return {!Observable<?JsonObject>}
+   */
+  getOrCreateObservableFor_(messageType) {
+    if (!(messageType in this.observableFor_)) {
+      this.observableFor_[messageType] = new Observable();
+    }
+    return this.observableFor_[messageType];
+  }
+
+  /**
+   * @param {string} messageType
+   * @param {Object} message
+   */
+  fireObservable_(messageType, message) {
+    if (messageType in this.observableFor_) {
+      this.observableFor_[messageType].fire(message);
+    }
+  }
+
+  /**
+   * @return {boolean}
+   */
+  isMessageOptionsSupported_() {
+    // Learned from https://github.com/dtapuska/useractivation
+    return this.hostWindow_ && this.hostWindow_.postMessage.length == 1;
   }
 }

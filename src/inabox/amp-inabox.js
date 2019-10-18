@@ -18,33 +18,35 @@
  * The entry point for AMP inabox runtime (inabox-v0.js).
  */
 
-import '../../third_party/babel/custom-babel-helpers';
 import '../polyfills';
-import {chunk} from '../chunk';
+import {Navigation} from '../service/navigation';
+import {Services} from '../services';
+import {adopt} from '../runtime';
+import {cssText as ampSharedCss} from '../../build/ampshared.css';
+import {doNotTrackImpression} from '../impression';
 import {fontStylesheetTimeout} from '../font-stylesheet-timeout';
-import {installPerformanceService} from '../service/performance-impl';
-import {installPullToRefreshBlocker} from '../pull-to-refresh';
-import {installGlobalClickListenerForDoc} from '../document-click';
-import {installStyles, makeBodyVisible} from '../style-installer';
-import {installErrorReporting} from '../error';
-import {installDocService} from '../service/ampdoc-impl';
-import {installCacheServiceWorker} from '../service-worker/install';
-import {stubElements} from '../custom-element';
+import {getA4AId, registerIniLoadListener} from './utils';
+import {getMode} from '../mode';
+import {installAmpdocServicesForInabox} from './inabox-services';
 import {
-    installAmpdocServices,
-    installBuiltins,
-    installRuntimeServices,
-    adopt,
-} from '../runtime';
-import {cssText} from '../../build/css';
+  installBuiltinElements,
+  installRuntimeServices,
+} from '../service/core-services';
+import {installDocService} from '../service/ampdoc-impl';
+import {installErrorReporting} from '../error';
+import {installPerformanceService} from '../service/performance-impl';
+import {
+  installStylesForDoc,
+  makeBodyVisible,
+  makeBodyVisibleRecovery,
+} from '../style-installer';
+import {internalRuntimeVersion} from '../internal-version';
 import {maybeValidate} from '../validator-integration';
-import {maybeTrackImpression} from '../impression';
-import {Inabox} from './inabox';
-import {isExperimentOn} from '../experiments';
+import {startupChunk} from '../chunk';
+import {stubElementsForDoc} from '../service/custom-element-registry';
 
-if (isExperimentOn(self, 'amp-inabox')) {
-  new Inabox(self).init();
-}
+getMode(self).runtime = 'inabox';
+getMode(self).a4aId = getA4AId(self);
 
 // TODO(lannka): only install the necessary services.
 
@@ -55,66 +57,85 @@ let ampdocService;
 // a completely blank page.
 try {
   // Should happen first.
-  installErrorReporting(self);  // Also calls makeBodyVisible on errors.
+  installErrorReporting(self); // Also calls makeBodyVisibleRecovery on errors.
 
   // Declare that this runtime will support a single root doc. Should happen
   // as early as possible.
-  ampdocService = installDocService(self, /* isSingleDoc */ true);
+  installDocService(self, /* isSingleDoc */ true);
+  ampdocService = Services.ampdocServiceFor(self);
 } catch (e) {
   // In case of an error call this.
-  makeBodyVisible(self.document);
+  makeBodyVisibleRecovery(self.document);
   throw e;
 }
-chunk(self.document, function initial() {
+startupChunk(self.document, function initial() {
   /** @const {!../service/ampdoc-impl.AmpDoc} */
   const ampdoc = ampdocService.getAmpDoc(self.document);
+  installPerformanceService(self);
   /** @const {!../service/performance-impl.Performance} */
-  const perf = installPerformanceService(self);
+  const perf = Services.performanceFor(self);
   perf.tick('is');
-  installStyles(self.document, cssText, () => {
-    chunk(self.document, function services() {
-      // Core services.
-      installRuntimeServices(self);
-      fontStylesheetTimeout(self);
-      installAmpdocServices(ampdoc);
-      // We need the core services (viewer/resources) to start instrumenting
-      perf.coreServicesAvailable();
-      maybeTrackImpression(self);
-    });
-    chunk(self.document, function builtins() {
-      // Builtins.
-      installBuiltins(self);
-    });
-    chunk(self.document, function adoptWindow() {
-      adopt(self);
-    });
-    chunk(self.document, function stub() {
-      stubElements(self);
-    });
-    chunk(self.document, function final() {
-      installPullToRefreshBlocker(self);
-      installGlobalClickListenerForDoc(ampdoc);
 
-      maybeValidate(self);
-      makeBodyVisible(self.document, /* waitForServices */ true);
-      installCacheServiceWorker(self);
-    });
-    chunk(self.document, function finalTick() {
-      perf.tick('e_is');
-      // TODO(erwinm): move invocation of the `flush` method when we have the
-      // new ticks in place to batch the ticks properly.
-      perf.flush();
-    });
-  }, /* opt_isRuntimeCss */ true, /* opt_ext */ 'amp-runtime');
+  self.document.documentElement.classList.add('i-amphtml-inabox');
+  installStylesForDoc(
+    ampdoc,
+    ampSharedCss +
+      'html.i-amphtml-inabox{width:100%!important;height:100%!important}',
+    () => {
+      startupChunk(self.document, function services() {
+        // Core services.
+        installRuntimeServices(self);
+        fontStylesheetTimeout(self);
+        installAmpdocServicesForInabox(ampdoc);
+        // We need the core services (viewer/resources) to start instrumenting
+        perf.coreServicesAvailable();
+        doNotTrackImpression();
+        registerIniLoadListener(ampdoc);
+      });
+      startupChunk(self.document, function builtins() {
+        // Builtins.
+        installBuiltinElements(self);
+      });
+      startupChunk(self.document, function adoptWindow() {
+        adopt(self);
+      });
+      startupChunk(self.document, function stub() {
+        // Pre-stub already known elements.
+        stubElementsForDoc(ampdoc);
+      });
+      startupChunk(
+        self.document,
+        function final() {
+          Navigation.installAnchorClickInterceptor(ampdoc, self);
+          maybeValidate(self);
+          makeBodyVisible(self.document);
+        },
+        /* makes the body visible */ true
+      );
+      startupChunk(self.document, function finalTick() {
+        perf.tick('e_is');
+        Services.resourcesForDoc(ampdoc).ampInitComplete();
+        // TODO(erwinm): move invocation of the `flush` method when we have the
+        // new ticks in place to batch the ticks properly.
+        perf.flush();
+      });
+    },
+    /* opt_isRuntimeCss */ true,
+    /* opt_ext */ 'amp-runtime'
+  );
 });
 
 // Output a message to the console and add an attribute to the <html>
 // tag to give some information that can be used in error reports.
 // (At least by sophisticated users).
 if (self.console) {
-  (console.info || console.log).call(console,
-      'Powered by AMP ⚡ HTML – Version $internalRuntimeVersion$',
-      self.location.href);
+  (console.info || console.log).call(
+    console,
+    `Powered by AMP ⚡ HTML – Version ${internalRuntimeVersion()}`,
+    self.location.href
+  );
 }
-self.document.documentElement.setAttribute('amp-version',
-    '$internalRuntimeVersion$');
+self.document.documentElement.setAttribute(
+  'amp-version',
+  internalRuntimeVersion()
+);

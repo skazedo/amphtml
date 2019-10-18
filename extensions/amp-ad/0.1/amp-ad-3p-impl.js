@@ -14,57 +14,83 @@
  * limitations under the License.
  */
 
+import {
+  ADSENSE_MCRSPV_TAG,
+  getMatchedContentResponsiveHeightAndUpdatePubParams,
+} from '../../../ads/google/utils';
+import {AmpAdUIHandler} from './amp-ad-ui';
 import {AmpAdXOriginIframeHandler} from './amp-ad-xorigin-iframe-handler';
 import {
-  is3pThrottled,
+  CONSENT_POLICY_STATE, // eslint-disable-line no-unused-vars
+} from '../../../src/consent-state';
+import {
+  Layout, // eslint-disable-line no-unused-vars
+  LayoutPriority,
+  isLayoutSizeDefined,
+} from '../../../src/layout';
+import {adConfig} from '../../../ads/_config';
+import {clamp} from '../../../src/utils/math';
+import {computedStyle, setStyle} from '../../../src/style';
+import {dev, devAssert, userAssert} from '../../../src/log';
+import {dict} from '../../../src/utils/object';
+import {getAdCid} from '../../../src/ad-cid';
+import {getAdContainer, isAdPositionAllowed} from '../../../src/ad-helper';
+import {
   getAmpAdRenderOutsideViewport,
   incrementLoadingAds,
+  is3pThrottled,
 } from './concurrent-load';
-import {getAdCid} from '../../../src/ad-cid';
-import {preloadBootstrap} from '../../../src/3p-frame';
-import {isLayoutSizeDefined} from '../../../src/layout';
-import {isAdPositionAllowed, getAdContainer,}
-    from '../../../src/ad-helper';
-import {adConfig} from '../../../ads/_config';
-import {getLifecycleReporter} from '../../../ads/google/a4a/performance';
-import {user, dev} from '../../../src/log';
-import {getIframe} from '../../../src/3p-frame';
-import {setupA2AListener} from './a2a-listener';
+import {
+  getConsentPolicyInfo,
+  getConsentPolicySharedData,
+  getConsentPolicyState,
+} from '../../../src/consent';
+import {getIframe, preloadBootstrap} from '../../../src/3p-frame';
+import {isExperimentOn} from '../../../src/experiments';
 import {moveLayoutRect} from '../../../src/layout-rect';
-import {AdDisplayState, AmpAdUIHandler} from './amp-ad-ui';
+import {toWin} from '../../../src/types';
 
-/** @const {!string} Tag name for 3P AD implementation. */
+/** @const {string} Tag name for 3P AD implementation. */
 export const TAG_3P_IMPL = 'amp-ad-3p-impl';
 
-/**
- * NOTE: For testing purpose of 3p ad, please consider using ad type `_ping_`,
- * as it disables native IntersectionObserver and sends renderStart signal.
- */
+/** @const {number} */
+const MIN_FULL_WIDTH_HEIGHT = 100;
+
+/** @const {number} */
+const MAX_FULL_WIDTH_HEIGHT = 500;
 
 export class AmpAd3PImpl extends AMP.BaseElement {
-
   /**
    * @param {!AmpElement} element
    */
   constructor(element) {
     super(element);
 
-    /** @private {?Element} */
+    /**
+     * @private {?Element}
+     * @visibleForTesting
+     */
     this.iframe_ = null;
 
-    /** {?Object} */
+    /** @type {?Object} */
     this.config = null;
 
-    /** {?AmpAdUIHandler} */
+    /** @type {?AmpAdUIHandler} */
     this.uiHandler = null;
 
     /** @private {?AmpAdXOriginIframeHandler} */
     this.xOriginIframeHandler_ = null;
 
-    /** @private {?Element} */
+    /**
+     * @private {?Element}
+     * @visibleForTesting
+     */
     this.placeholder_ = null;
 
-    /** @private {?Element} */
+    /**
+     * @private {?Element}
+     * @visibleForTesting
+     */
     this.fallback_ = null;
 
     /** @private {boolean} */
@@ -79,10 +105,14 @@ export class AmpAd3PImpl extends AMP.BaseElement {
     /**
      * Call to stop listening to viewport changes.
      * @private {?function()}
+     * @visibleForTesting
      */
     this.unlistenViewportChanges_ = null;
 
-    /** @private {IntersectionObserver} */
+    /**
+     * @private {IntersectionObserver}
+     * @visibleForTesting
+     */
     this.intersectionObserver_ = null;
 
     /** @private {?string|undefined} */
@@ -91,47 +121,110 @@ export class AmpAd3PImpl extends AMP.BaseElement {
     /** @private {?Promise} */
     this.layoutPromise_ = null;
 
-    /** {!../../../ads/google/a4a/performance.BaseLifecycleReporter} */
-    this.lifecycleReporter = getLifecycleReporter(this, 'amp', undefined,
-        this.element.getAttribute('data-amp-slot-index'));
+    /** @private {string|undefined} */
+    this.type_ = undefined;
 
-    this.lifecycleReporter.sendPing('adSlotBuilt');
+    /**
+     * For full-width responsive ads: whether the element has already been
+     * aligned to the edges of the viewport.
+     * @private {boolean}
+     */
+    this.isFullWidthAligned_ = false;
+
+    /**
+     * Whether full-width responsive was requested for this ad.
+     * @private {boolean}
+     */
+    this.isFullWidthRequested_ = false;
   }
 
   /** @override */
-  getPriority() {
-    // Loads ads after other content.
-    return 2;
+  getLayoutPriority() {
+    // Loads ads after other content,
+    const isPWA = !this.element.getAmpDoc().isSingleDoc();
+    // give the ad higher priority if it is inside a PWA
+    return isPWA ? LayoutPriority.METADATA : LayoutPriority.ADS;
   }
 
+  /** @override */
   renderOutsideViewport() {
     if (is3pThrottled(this.win)) {
       return false;
     }
     // Otherwise the ad is good to go.
     const elementCheck = getAmpAdRenderOutsideViewport(this.element);
-    return elementCheck !== null ?
-      elementCheck : super.renderOutsideViewport();
+    return elementCheck !== null ? elementCheck : super.renderOutsideViewport();
   }
 
-  /** @override */
+  /**
+   * @param {!Layout} layout
+   * @override
+   */
   isLayoutSupported(layout) {
     return isLayoutSizeDefined(layout);
   }
 
+  /**
+   * @return {!../../../src/service/resource.Resource}
+   * @visibleForTesting
+   */
+  getResource() {
+    return this.element.getResources().getResourceForElement(this.element);
+  }
+
+  /** @override */
+  getConsentPolicy() {
+    const type = this.element.getAttribute('type');
+    const config = adConfig[type];
+    if (config && config['consentHandlingOverride']) {
+      return null;
+    }
+    return super.getConsentPolicy();
+  }
+
   /** @override */
   buildCallback() {
+    this.type_ = this.element.getAttribute('type');
+    const upgradeDelayMs = Math.round(this.getResource().getUpgradeDelayMs());
+    dev().info(TAG_3P_IMPL, `upgradeDelay ${this.type_}: ${upgradeDelayMs}`);
+
     this.placeholder_ = this.getPlaceholder();
     this.fallback_ = this.getFallback();
 
-    const adType = this.element.getAttribute('type');
-    this.config = adConfig[adType];
-    user().assert(this.config, `Type "${adType}" is not supported in amp-ad`);
+    this.config = adConfig[this.type_];
+    userAssert(this.config, `Type "${this.type_}" is not supported in amp-ad`);
 
     this.uiHandler = new AmpAdUIHandler(this);
-    this.uiHandler.init();
 
-    setupA2AListener(this.win);
+    this.isFullWidthRequested_ = this.shouldRequestFullWidth_();
+
+    if (this.isFullWidthRequested_) {
+      return this.attemptFullWidthSizeChange_();
+    }
+  }
+
+  /**
+   * @return {boolean}
+   * @private
+   */
+  shouldRequestFullWidth_() {
+    const hasFullWidth = this.element.hasAttribute('data-full-width');
+    if (!hasFullWidth) {
+      return false;
+    }
+    userAssert(
+      this.element.getAttribute('width') == '100vw',
+      'Ad units with data-full-width must have width="100vw".'
+    );
+    userAssert(
+      !!this.config.fullWidthHeightRatio,
+      'Ad network does not support full width ads.'
+    );
+    dev().info(
+      TAG_3P_IMPL,
+      '#${this.getResource().getId()} Full width requested'
+    );
+    return true;
   }
 
   /**
@@ -141,7 +234,7 @@ export class AmpAd3PImpl extends AMP.BaseElement {
    */
   preconnectCallback(opt_onLayout) {
     // We always need the bootstrap.
-    preloadBootstrap(this.win, this.preconnect);
+    preloadBootstrap(this.win, this.preconnect, this.config.remoteHTMLDisabled);
     if (typeof this.config.prefetch == 'string') {
       this.preconnect.preload(this.config.prefetch, 'script');
     } else if (this.config.prefetch) {
@@ -180,6 +273,30 @@ export class AmpAd3PImpl extends AMP.BaseElement {
     if (this.xOriginIframeHandler_) {
       this.xOriginIframeHandler_.onLayoutMeasure();
     }
+
+    if (this.isFullWidthRequested_ && !this.isFullWidthAligned_) {
+      this.isFullWidthAligned_ = true;
+      const layoutBox = this.getLayoutBox();
+
+      // Nudge into the correct horizontal position by changing side margin.
+      this.getVsync().run(
+        {
+          measure: state => {
+            state.direction = computedStyle(this.win, this.element)[
+              'direction'
+            ];
+          },
+          mutate: state => {
+            if (state.direction == 'rtl') {
+              setStyle(this.element, 'marginRight', layoutBox.left, 'px');
+            } else {
+              setStyle(this.element, 'marginLeft', -layoutBox.left, 'px');
+            }
+          },
+        },
+        {direction: ''}
+      );
+    }
   }
 
   /**
@@ -188,8 +305,9 @@ export class AmpAd3PImpl extends AMP.BaseElement {
    */
   measureIframeLayoutBox_() {
     if (this.xOriginIframeHandler_ && this.xOriginIframeHandler_.iframe) {
-      const iframeBox =
-          this.getViewport().getLayoutRect(this.xOriginIframeHandler_.iframe);
+      const iframeBox = this.getViewport().getLayoutRect(
+        this.xOriginIframeHandler_.iframe
+      );
       const box = this.getLayoutBox();
       // Cache the iframe's relative position to the amp-ad. This is
       // necessary for fixed-position containers which "move" with the
@@ -210,8 +328,9 @@ export class AmpAd3PImpl extends AMP.BaseElement {
       this.measureIframeLayoutBox_();
     }
 
-    const iframe = /** @type {!../../../src/layout-rect.LayoutRectDef} */(
-        dev().assert(this.iframeLayoutBox_));
+    const iframe = /** @type {!../../../src/layout-rect.LayoutRectDef} */ (devAssert(
+      this.iframeLayoutBox_
+    ));
     return moveLayoutRect(iframe, box.left, box.top);
   }
 
@@ -220,47 +339,163 @@ export class AmpAd3PImpl extends AMP.BaseElement {
     if (this.layoutPromise_) {
       return this.layoutPromise_;
     }
-    this.lifecycleReporter.sendPing('preAdThrottle');
-    user().assert(!this.isInFixedContainer_,
-        '<amp-ad> is not allowed to be placed in elements with ' +
-        'position:fixed: %s', this.element);
-    incrementLoadingAds(this.win);
-    return this.layoutPromise_ = getAdCid(this).then(cid => {
-      this.uiHandler.setDisplayState(AdDisplayState.LOADING);
-      const opt_context = {
-        clientId: cid || null,
-        container: this.container_,
-      };
+    userAssert(
+      !this.isInFixedContainer_,
+      '<amp-ad> is not allowed to be placed in elements with ' +
+        'position:fixed: %s',
+      this.element
+    );
+
+    const consentPromise = this.getConsentState();
+    const consentPolicyId = super.getConsentPolicy();
+    const isConsentV2Experiment = isExperimentOn(this.win, 'amp-consent-v2');
+    const consentStringPromise =
+      consentPolicyId && isConsentV2Experiment
+        ? getConsentPolicyInfo(this.element, consentPolicyId)
+        : Promise.resolve(null);
+    const sharedDataPromise = consentPolicyId
+      ? getConsentPolicySharedData(this.element, consentPolicyId)
+      : Promise.resolve(null);
+
+    this.layoutPromise_ = Promise.all([
+      getAdCid(this),
+      consentPromise,
+      sharedDataPromise,
+      consentStringPromise,
+    ]).then(consents => {
+      // Use JsonObject to preserve field names so that ampContext can access
+      // values with name
+      // ampcontext.js and this file are compiled in different compilation unit
+
+      // Note: Field names can by perserved by using JsonObject, or by adding
+      // perserved name to extern. We are doing both right now.
+      // Please also add new introduced variable
+      // name to the extern list.
+      const opt_context = dict({
+        'clientId': consents[0] || null,
+        'container': this.container_,
+        'initialConsentState': consents[1],
+        'consentSharedData': consents[2],
+      });
+      if (isConsentV2Experiment) {
+        opt_context['initialConsentValue'] = consents[3];
+      }
 
       // In this path, the request and render start events are entangled,
       // because both happen inside a cross-domain iframe.  Separating them
       // here, though, allows us to measure the impact of ad throttling via
       // incrementLoadingAds().
-      this.lifecycleReporter.sendPing('adRequestStart');
-      const iframe = getIframe(this.element.ownerDocument.defaultView,
-          this.element, undefined, opt_context);
-      this.xOriginIframeHandler_ = new AmpAdXOriginIframeHandler(
-          this);
+      const iframe = getIframe(
+        toWin(this.element.ownerDocument.defaultView),
+        this.element,
+        this.type_,
+        opt_context,
+        {disallowCustom: this.config.remoteHTMLDisabled}
+      );
+      this.xOriginIframeHandler_ = new AmpAdXOriginIframeHandler(this);
       return this.xOriginIframeHandler_.init(iframe);
     });
+    incrementLoadingAds(this.win, this.layoutPromise_);
+    return this.layoutPromise_;
   }
 
-  /** @override  */
+  /**
+   * @param {boolean} inViewport
+   * @override
+   */
   viewportCallback(inViewport) {
     if (this.xOriginIframeHandler_) {
       this.xOriginIframeHandler_.viewportCallback(inViewport);
     }
   }
 
+  /** @override */
+  unlayoutOnPause() {
+    return (
+      !this.xOriginIframeHandler_ || !this.xOriginIframeHandler_.isPausable()
+    );
+  }
+
+  /** @override  */
+  pauseCallback() {
+    if (this.xOriginIframeHandler_) {
+      this.xOriginIframeHandler_.setPaused(true);
+    }
+  }
+
+  /** @override  */
+  resumeCallback() {
+    if (this.xOriginIframeHandler_) {
+      this.xOriginIframeHandler_.setPaused(false);
+    }
+  }
+
   /** @override  */
   unlayoutCallback() {
     this.layoutPromise_ = null;
-    this.uiHandler.setDisplayState(AdDisplayState.NOT_LAID_OUT);
+    this.uiHandler.applyUnlayoutUI();
     if (this.xOriginIframeHandler_) {
       this.xOriginIframeHandler_.freeXOriginIframe();
       this.xOriginIframeHandler_ = null;
     }
-    this.lifecycleReporter.sendPing('adSlotCleared');
     return true;
+  }
+
+  /**
+   * @return {!Promise<?CONSENT_POLICY_STATE>}
+   */
+  getConsentState() {
+    const consentPolicyId = super.getConsentPolicy();
+    return consentPolicyId
+      ? getConsentPolicyState(this.element, consentPolicyId)
+      : Promise.resolve(null);
+  }
+
+  /**
+   * Calculates and attempts to set the appropriate height & width for a
+   * responsive full width ad unit.
+   * @return {!Promise}
+   * @private
+   */
+  attemptFullWidthSizeChange_() {
+    const viewportSize = this.getViewport().getSize();
+    const maxHeight = Math.min(MAX_FULL_WIDTH_HEIGHT, viewportSize.height);
+    const {width} = viewportSize;
+    const height = this.getFullWidthHeight_(width, maxHeight);
+    // Attempt to resize to the correct height. The width should already be
+    // 100vw, but is fixed here so that future resizes of the viewport don't
+    // affect it.
+
+    return this.attemptChangeSize(height, width).then(
+      () => {
+        dev().info(TAG_3P_IMPL, `Size change accepted: ${width}x${height}`);
+      },
+      () => {
+        dev().info(TAG_3P_IMPL, `Size change rejected: ${width}x${height}`);
+      }
+    );
+  }
+
+  /**
+   * Calculates the appropriate width for a responsive full width ad unit.
+   * @param {number} width
+   * @param {number} maxHeight
+   * @return {number}
+   * @private
+   */
+  getFullWidthHeight_(width, maxHeight) {
+    // TODO(google a4a eng): remove this once adsense switches fully to
+    // fast fetch.
+    if (this.element.getAttribute('data-auto-format') === ADSENSE_MCRSPV_TAG) {
+      return getMatchedContentResponsiveHeightAndUpdatePubParams(
+        width,
+        this.element
+      );
+    }
+    return clamp(
+      Math.round(width / this.config.fullWidthHeightRatio),
+      MIN_FULL_WIDTH_HEIGHT,
+      maxHeight
+    );
   }
 }

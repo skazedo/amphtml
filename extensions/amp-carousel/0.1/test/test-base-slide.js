@@ -31,11 +31,9 @@
  */
 
 import {BaseSlides} from '../base-slides';
-import * as sinon from 'sinon';
 
-describe('BaseSlides', () => {
-
-  let sandbox;
+describes.fakeWin('BaseSlides', {amp: true}, env => {
+  let win, doc;
   let buildSlidesSpy;
   let onViewportCallbackSpy;
   let hasPrevSpy;
@@ -50,9 +48,9 @@ describe('BaseSlides', () => {
   let autoplaySpy;
   let clearAutoplaySpy;
 
-
   beforeEach(() => {
-    sandbox = sinon.sandbox.create();
+    win = env.win;
+    doc = win.document;
     buildSlidesSpy = sandbox.spy();
     onViewportCallbackSpy = sandbox.spy();
     hasPrevSpy = sandbox.spy();
@@ -61,27 +59,27 @@ describe('BaseSlides', () => {
     setupAutoplaySpy = sandbox.spy(BaseSlides.prototype, 'setupAutoplay_');
     buildButtonsSpy = sandbox.spy(BaseSlides.prototype, 'buildButtons');
     setupGesturesSpy = sandbox.spy(BaseSlides.prototype, 'setupGestures');
-    setControlsStateSpy =
-        sandbox.spy(BaseSlides.prototype, 'setControlsState');
+    setControlsStateSpy = sandbox.spy(BaseSlides.prototype, 'setControlsState');
     hintControlsSpy = sandbox.spy(BaseSlides.prototype, 'hintControls');
     autoplaySpy = sandbox.spy(BaseSlides.prototype, 'autoplay_');
     clearAutoplaySpy = sandbox.spy(BaseSlides.prototype, 'clearAutoplay');
-    onViewportCallbackSpy =
-        sandbox.spy(BaseSlides.prototype, 'onViewportCallback');
+    onViewportCallbackSpy = sandbox.spy(
+      BaseSlides.prototype,
+      'onViewportCallback'
+    );
   });
-
-  afterEach(() => {
-    sandbox.restore();
-  });
-
 
   function setElement(options) {
-    const element = document.createElement('div');
+    const element = doc.createElement('div');
     if (options.loop) {
       element.setAttribute('loop', '');
     }
     if (options.autoplay) {
-      element.setAttribute('autoplay', '');
+      if (!options.autoplayLoops) {
+        element.setAttribute('autoplay', '');
+      } else {
+        element.setAttribute('autoplay', options.autoplayLoops);
+      }
     }
     if (options.delay) {
       element.setAttribute('delay', options.delay);
@@ -90,9 +88,7 @@ describe('BaseSlides', () => {
     return element;
   }
 
-
   class TestCarousel extends BaseSlides {
-
     /** @override */
     buildSlides() {
       buildSlidesSpy();
@@ -120,52 +116,60 @@ describe('BaseSlides', () => {
   }
 
   it('should do the right buildCallback processing', () => {
-    const carouselLoopOnly = new TestCarousel(setElement({
-      loop: true,
-    }));
+    const carouselLoopOnly = new TestCarousel(
+      setElement({
+        loop: true,
+      })
+    );
 
     carouselLoopOnly.buildCallback();
 
     expect(carouselLoopOnly.shouldLoop).to.be.true;
     expect(carouselLoopOnly.shouldAutoplay_).to.be.false;
     expect(setupAutoplaySpy).to.not.have.been.called;
-    expect(buildButtonsSpy.callCount).to.equal(1);
-    expect(setupGesturesSpy.callCount).to.equal(1);
-    expect(setControlsStateSpy.callCount).to.equal(1);
+    expect(buildButtonsSpy).to.be.calledOnce;
+    expect(setupGesturesSpy).to.be.calledOnce;
+    expect(setControlsStateSpy).to.be.calledOnce;
 
-    const carouselAutoplayOnly = new TestCarousel(setElement({
-      autoplay: true,
-    }));
+    const carouselAutoplayOnly = new TestCarousel(
+      setElement({
+        autoplay: true,
+      })
+    );
 
     carouselAutoplayOnly.buildCallback();
 
     expect(carouselAutoplayOnly.shouldLoop).to.be.true;
     expect(carouselAutoplayOnly.shouldAutoplay_).to.be.true;
     expect(setupAutoplaySpy).to.have.been.called;
-    expect(buildButtonsSpy.callCount).to.equal(2);
-    expect(setupGesturesSpy.callCount).to.equal(2);
-    expect(setControlsStateSpy.callCount).to.equal(2);
+    expect(buildButtonsSpy).to.have.callCount(2);
+    expect(setupGesturesSpy).to.have.callCount(2);
+    expect(setControlsStateSpy).to.have.callCount(2);
 
-    const carouselAutoplayWithLoop = new TestCarousel(setElement({
-      loop: true,
-      autoplay: true,
-    }));
+    const carouselAutoplayWithLoop = new TestCarousel(
+      setElement({
+        loop: true,
+        autoplay: true,
+      })
+    );
 
     carouselAutoplayWithLoop.buildCallback();
 
     expect(carouselAutoplayWithLoop.shouldLoop).to.be.true;
     expect(carouselAutoplayWithLoop.shouldAutoplay_).to.be.true;
-    expect(setupAutoplaySpy.callCount).to.equal(2);
-    expect(buildButtonsSpy.callCount).to.equal(3);
-    expect(setupGesturesSpy.callCount).to.equal(3);
-    expect(setControlsStateSpy.callCount).to.equal(3);
+    expect(setupAutoplaySpy).to.have.callCount(2);
+    expect(buildButtonsSpy).to.have.callCount(3);
+    expect(setupGesturesSpy).to.have.callCount(3);
+    expect(setControlsStateSpy).to.have.callCount(3);
   });
 
   it('should handle viewportCallback when in viewport', () => {
-    const carousel = new TestCarousel(setElement({
-      loop: true,
-      autoplay: true,
-    }));
+    const carousel = new TestCarousel(
+      setElement({
+        loop: true,
+        autoplay: true,
+      })
+    );
 
     carousel.viewportCallback(true);
     expect(onViewportCallbackSpy).to.have.been.calledWith(true);
@@ -175,10 +179,12 @@ describe('BaseSlides', () => {
   });
 
   it('should handle viewportCallback when not in viewport', () => {
-    const carousel = new TestCarousel(setElement({
-      loop: true,
-      autoplay: true,
-    }));
+    const carousel = new TestCarousel(
+      setElement({
+        loop: true,
+        autoplay: true,
+      })
+    );
 
     carousel.viewportCallback(false);
     expect(onViewportCallbackSpy).to.have.been.calledWith(false);
@@ -188,9 +194,11 @@ describe('BaseSlides', () => {
   });
 
   it('should setup autoplay with no delay set', () => {
-    const carousel = new TestCarousel(setElement({
-      autoplay: true,
-    }));
+    const carousel = new TestCarousel(
+      setElement({
+        autoplay: true,
+      })
+    );
     carousel.autoplayDelay_ = 5000;
     expect(carousel.element.hasAttribute('loop')).to.be.false;
     carousel.setupAutoplay_();
@@ -200,11 +208,28 @@ describe('BaseSlides', () => {
     expect(carousel.shouldLoop).to.be.true;
   });
 
+  it('should setup autoplay with specified number of loops', () => {
+    const carousel = new TestCarousel(
+      setElement({
+        autoplay: true,
+        autoplayLoops: 5,
+      })
+    );
+    expect(carousel.element.hasAttribute('loop')).to.be.false;
+    carousel.buildCallback();
+    expect(carousel.element.hasAttribute('loop')).to.be.true;
+    expect(carousel.autoplayLoops_).to.equal(5);
+    expect(carousel.hasLoop_).to.be.true;
+    expect(carousel.shouldLoop).to.be.true;
+  });
+
   it('should setup autoplay with delay set', () => {
-    const carousel = new TestCarousel(setElement({
-      autoplay: true,
-      delay: 3000,
-    }));
+    const carousel = new TestCarousel(
+      setElement({
+        autoplay: true,
+        delay: 3000,
+      })
+    );
     carousel.autoplayDelay_ = 5000;
     expect(carousel.element.hasAttribute('loop')).to.be.false;
     carousel.setupAutoplay_();
@@ -215,10 +240,12 @@ describe('BaseSlides', () => {
   });
 
   it('should setup autoplay with delay set lower', () => {
-    const carousel = new TestCarousel(setElement({
-      autoplay: true,
-      delay: 300,
-    }));
+    const carousel = new TestCarousel(
+      setElement({
+        autoplay: true,
+        delay: 300,
+      })
+    );
     carousel.autoplayDelay_ = 5000;
     expect(carousel.element.hasAttribute('loop')).to.be.false;
     carousel.setupAutoplay_();
@@ -229,10 +256,12 @@ describe('BaseSlides', () => {
   });
 
   it('should start timer on autoplay', () => {
-    const carousel = new TestCarousel(setElement({
-      autoplay: true,
-      delay: 300,
-    }));
+    const carousel = new TestCarousel(
+      setElement({
+        autoplay: true,
+        delay: 300,
+      })
+    );
     carousel.buildCallback();
     carousel.autoplay_();
 
@@ -241,9 +270,11 @@ describe('BaseSlides', () => {
   });
 
   it('should not start timer on when there is no autoplay', () => {
-    const carousel = new TestCarousel(setElement({
-      delay: 300,
-    }));
+    const carousel = new TestCarousel(
+      setElement({
+        delay: 300,
+      })
+    );
     carousel.buildCallback();
     carousel.autoplay_();
 
@@ -252,10 +283,12 @@ describe('BaseSlides', () => {
   });
 
   it('should clear timeout', () => {
-    const carousel = new TestCarousel(setElement({
-      autoplay: true,
-      delay: 300,
-    }));
+    const carousel = new TestCarousel(
+      setElement({
+        autoplay: true,
+        delay: 300,
+      })
+    );
     carousel.buildCallback();
     carousel.autoplay_();
 
@@ -264,5 +297,86 @@ describe('BaseSlides', () => {
 
     carousel.clearAutoplay();
     expect(carousel.autoplayTimeoutId_).to.be.null;
+  });
+
+  it('toggle autoPlay status using speficied value & autoplay=true', () => {
+    const carousel = new TestCarousel(
+      setElement({
+        autoplay: true,
+        delay: 300,
+      })
+    );
+    carousel.buildCallback();
+    carousel.autoplay_();
+
+    expect(carousel.shouldAutoplay_).to.be.true;
+
+    const args = {'toggleOn': false};
+    carousel.executeAction({
+      method: 'toggleAutoplay',
+      args,
+      satisfiesTrust: () => true,
+    });
+    expect(carousel.shouldAutoplay_).to.be.false;
+
+    args['toggleOn'] = true;
+    carousel.executeAction({
+      method: 'toggleAutoplay',
+      args,
+      satisfiesTrust: () => true,
+    });
+    expect(carousel.shouldAutoplay_).to.be.true;
+  });
+
+  it('toggle autoPlay status using speficied value & autoplay=false', () => {
+    const carousel = new TestCarousel(
+      setElement({
+        delay: 300,
+      })
+    );
+    carousel.buildCallback();
+
+    expect(carousel.shouldAutoplay_).to.be.false;
+
+    const args = {'toggleOn': true};
+    carousel.executeAction({
+      method: 'toggleAutoplay',
+      args,
+      satisfiesTrust: () => true,
+    });
+    expect(carousel.shouldAutoplay_).to.be.true;
+
+    args['toggleOn'] = false;
+    carousel.executeAction({
+      method: 'toggleAutoplay',
+      args,
+      satisfiesTrust: () => true,
+    });
+    expect(carousel.shouldAutoplay_).to.be.false;
+  });
+
+  it('toggle autoPlay status without speficied value & autoplay=true', () => {
+    const carousel = new TestCarousel(
+      setElement({
+        autoplay: true,
+        delay: 300,
+      })
+    );
+    carousel.buildCallback();
+    carousel.autoplay_();
+
+    expect(carousel.shouldAutoplay_).to.be.true;
+
+    carousel.executeAction({
+      method: 'toggleAutoplay',
+      satisfiesTrust: () => true,
+    });
+    expect(carousel.shouldAutoplay_).to.be.false;
+
+    carousel.executeAction({
+      method: 'toggleAutoplay',
+      satisfiesTrust: () => true,
+    });
+    expect(carousel.shouldAutoplay_).to.be.true;
   });
 });

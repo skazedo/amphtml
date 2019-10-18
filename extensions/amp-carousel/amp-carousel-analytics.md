@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 -->
 
-# <a name="amp-carousel-analytics"></a>AMP Carousel and Analytics
+# AMP Carousel and Analytics
 
 ## Carousel (slides) triggers
 
@@ -50,7 +50,7 @@ The `amp-carousel-next` event is issued when there is a travesal to the next sli
 
 ### Previous trigger (`"on": "amp-carousel-prev"`)
 
-The `amp-carousel-next` event is issued when there is a travesal to the previous slide. Use these configurations to fire a request for this event.
+The `amp-carousel-prev` event is issued when there is a travesal to the previous slide. Use these configurations to fire a request for this event.
 
 ```javascript
 "triggers": {
@@ -63,4 +63,4 @@ The `amp-carousel-next` event is issued when there is a travesal to the previous
 
 ### Vars
 
-Description of the variables can be found in the [analytics-vars.md](/extensions/amp-analytics/analytics-vars.md#fromslide) file.
+Description of the variables can be found in the [analytics-vars.md](../amp-analytics/analytics-vars.md#fromslide) file.

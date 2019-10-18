@@ -18,18 +18,121 @@ limitations under the License.
 
 ## Overview
 
-Some components such as [`amp-pixel`](../builtins/amp-pixel.md), 
-[`amp-list`](../extensions/amp-list/amp-list.md) and [`amp-analytics`](../extensions/amp-analytics/amp-analytics.md) allow variables to be substituted in the relevant URLs. AMP provides a number of standard variable substitutions and allows each component to add their own. The rest of this document talks about the variables supported by the platform.
+Various AMP features allow variables to be used inside of strings and substituted with the corresponding actual values. For example, `amp-pixel` allows expressions like this:
 
-Anchor href's that are the target (or have a child who is the target) of a click
-are synchronously expanded.  Variables below that are asynchronous by nature
-are replaced with empty string to ensure page navigation is not delayed.  If
-the navigation is prevented, the href is still updated however later clicks
-will still update to the most current values of the variables.  Note that some
-variables will not allow for expansion for A4A creatives.  Specifics will be
-addressed at a later time.
+``` text
+<amp-pixel src="https://foo.com/pixel?RANDOM"></amp-pixel>
+```
 
-## Variables 
+`RANDOM` gets resolved to a randomly generated value and AMP replaces it in the request string:
+
+``` text
+https://foo.com/pixel?0.8390278471201
+```
+
+The following table lists the features that enable variable substitutions, as well as several properties that govern usage:
+
+<table>
+  <tr>
+    <th width="25%"><strong>AMP Feature</strong></th>
+    <th width="25%"><strong>URL limitations</strong></th>
+    <th width="25%"><strong>Requires <a href="#per-use-opt-in">per-use opt-in</a>?</strong></th>
+    <th width="25%"><strong>Restrictions</strong></th>
+  </tr>
+  <tr>
+    <td width="25%"><code>amp-analytics</code><br><a href="https://github.com/ampproject/amphtml/blob/master/extensions/amp-analytics/amp-analytics.md#vars">Detailed documentation</a></td>
+    <td width="25%">Requests must be HTTPS URLs (not a requirement specific to variable substitutions)</td>
+    <td width="25%">No</td>
+    <td width="25%">None</td>
+  </tr>
+  <tr>
+    <td width="25%"><code>amp-list</code><br><a href="https://github.com/ampproject/amphtml/blob/master/extensions/amp-list/amp-list.md#substitutions">Detailed documentation</a></td>
+    <td width="25%">Requests must be HTTPS URLs (not a requirement specific to variable substitutions)</td>
+    <td width="25%">Yes, if fetching cross-origin resources via <code>[src]</code> <a href="https://amp.dev/documentation/components/amp-bind#element-specific-attributes">attribute binding</a>. Otherwise, no. Read more about <a href="#per-use-opt-in">per-use opt-in</a></td>
+    <td width="25%">None</td>
+  </tr>
+  <tr>
+    <td width="25%"><code>amp-pixel</code><br><a href="https://github.com/ampproject/amphtml/blob/master/builtins/amp-pixel.md#substitutions">Detailed documentation</a></td>
+    <td width="25%">Requests must be HTTPS URLs (not a requirement specific to variable substitutions)</td>
+    <td width="25%">No</td>
+    <td width="25%">None</td>
+  </tr>
+  <tr>
+    <td width="25%"><code>amp-state</code><br><a href="https://github.com/ampproject/amphtml/blob/master/extensions/amp-bind/amp-bind.md#attributes">Detailed documentation</a></td>
+    <td width="25%">Requests must be HTTPS URLs (not a requirement specific to variable substitutions)</td>
+    <td width="25%">Yes, if fetching cross-origin resources via <code>[src]</code> <a href="https://amp.dev/documentation/components/amp-bind#element-specific-attributes">attribute binding</a>. Otherwise, no. Read more about <a href="#per-use-opt-in">per-use opt-in</a></td>
+    <td width="25%">None</td>
+  </tr>
+  <tr>
+    <td width="25%">Links (<code>&lt;a&gt;</code>)</td>
+    <td width="25%">
+      HTTPS URL and URL matching either:
+      <ul>
+        <li>Page’s source origin</li>
+        <li>Page’s canonical origin</li>
+        <li>An origin white listed via the <code>amp-link-variable-allowed-origin</code> <code>meta</code> tag</li>
+      </ul>
+    </td>
+    <td width="25%">Yes, via space-delimited attribute <code>data-amp-replace</code>. Read more about <a href="#per-use-opt-in">per-use opt-in</a></td>
+    <td width="25%">Only these variables are supported: <code>CLIENT_ID</code> and <code>QUERY_PARAM</code>.<br>See the section on <a href="#substitution-timing">"substitution timing"</a> for further notes</td>
+  </tr>
+  <tr>
+    <td width="25%">Form inputs<br><a href="https://github.com/ampproject/amphtml/blob/master/extensions/amp-form/amp-form.md#variable-substitutions">Detailed documentation</a></td>
+    <td width="25%">Requests must be HTTPS URLs (not a requirement specific to variable substitutions)</td>
+    <td width="25%">Yes, via space-delimited attribute <code>data-amp-replace</code>. Read more about <a href="#per-use-opt-in">per-use opt-in</a></td>
+    <td width="25%">See the section on <a href="#substitution-timing">"substitution timing"</a> for further notes</td>
+  </tr>
+</table>
+
+### Substitution timing
+
+Variable substitutions that are dependent on a user action like links and form inputs may not occur if the value has not yet been computed.
+
+Please take note of the following scenarios:
+* `CLIENT_ID` is available once it has been computed. This can be accomplished through use by another feature such as `amp-analytics` or `amp-pixel`. Note that `CLIENT_ID` may also be blocked on an `amp-user-notification` that is pending acceptance.
+* Asynchronously resolved variables are not available
+
+### Restrictions
+The `host` string of an URL does not accept variables. It fails on AMP cache.
+
+## Variable substitution in links
+
+Variable substitution is available in links, i.e. `<a href="..."></a>`.
+
+Only these variables are supported:
+* `CLIENT_ID`
+* `QUERY_PARAM(argument)`
+
+### Per-use opt-in
+
+Link substitution requires per-use opt-in as an added security measure and to affirm the intention to use variable substitution. This is done by specifying an additional attribute called `data-amp-replace` with a string value containing a space-delimited listing of the desired variables to substitute. An example is below.
+
+``` text
+<a href="https://example.com?client_id=CLIENT_ID(bar)&abc=QUERY_PARAM(abc)" data-amp-replace="CLIENT_ID QUERY_PARAM">Go to my site</a>
+```
+
+#### Appending parameters to the href
+If you need to append dynamic parameters to the href, specify the parameters by using the `data-amp-addparams` attribute. Any substitution parameters that you specify in `data-amp-addparams` must also be specified in `data-amp-replace`, as in the following example
+
+``` text
+<a href="https://example.com?abc=QUERY_PARAM(abc)" data-amp-replace="CLIENT_ID QUERY_PARAM" data-amp-addparams="client_id=CLIENT_ID(bar)&linkid=l123">Go to my site</a>
+```
+
+### White listed domains for link substitution
+
+Link substitutions are restricted and will only be fulfilled for URLs matching:
+
+* The page’s source origin
+* The page’s canonical origin
+* A white listed origin
+
+To whitelist an origin, include a `amp-link-variable-allowed-origin` `meta` tag in the `head` of your document. To specify multiple domains, separate each domain with a space.
+
+``` text
+<meta name="amp-link-variable-allowed-origin" content="https://example.com https://example.org">
+```
+
+## Variables
 
 The tables below list the available URL variables grouped by type of usage. Further down in this document, are [descriptions](#variable-descriptions) of each of the variables, along with example usages.
 
@@ -38,6 +141,7 @@ The tables below list the available URL variables grouped by type of usage. Furt
 * [Device and Browser](#device-and-browser)
 * [Interaction](#interaction)
 * [Visibility](#visibility)
+* [AMP Components](#amp-components)
 * [Miscellaneous](#miscellaneous)
 
 ### Page and Content
@@ -54,6 +158,8 @@ The tables below list the available URL variables grouped by type of usage. Furt
 | [Counter](#counter) | `COUNTER` | `${counter}` |
 | [Document Charset](#document-charset) | `DOCUMENT_CHARSET` | `${documentCharset}` |
 | [Document Referrer](#document-referrer) | `DOCUMENT_REFERRER` | `${documentReferrer}` |
+| [External Referrer](#external-referrer) | `EXTERNAL_REFERRER` | `${externalReferrer}` |
+| [HTML Attributes](#html-attributes) | `HTML_ATTR`      | `${htmlAttr}` |
 | [Source URL](#source-url)           | `SOURCE_URL`      | `${sourceUrl}` |
 | [Source Host](#source-host)         | `SOURCE_HOST`     | `${sourceHost}` |
 | [Source Hostname](#source-hostname) | `SOURCE_HOSTNAME` | `${sourceHostname}` |
@@ -61,7 +167,7 @@ The tables below list the available URL variables grouped by type of usage. Furt
 | [Title](#title)                     | `TITLE`           | `${title}` |
 | [Viewer](#viewer)                   | `VIEWER`          | `${viewer}` |
 
-### Performance 
+### Performance
 
 | Variable Name  | Platform Variable  | amp-analytics Variable |
 |----------------|--------------------|------------------------|
@@ -92,6 +198,8 @@ The tables below list the available URL variables grouped by type of usage. Furt
 | [Scroll Left](#scroll-left)         | `SCROLL_LEFT`     | `${scrollLeft}`     |
 | [Scroll Top](#scroll-top)           | `SCROLL_TOP`      | `${scrollTop}`      |
 | [Timezone](#timezone)               | `TIMEZONE`        | `${timezone}`       |
+| [Timezone Code](#timezone-code)     | `TIMEZONE_CODE`   | `${timezoneCode}`   |
+| [User Agent](#user-agent)           | `USER_AGENT`      | `${userAgent}`      |
 | [Viewport Height](#viewport-height) | `VIEWPORT_HEIGHT` | `${viewportHeight}` |
 | [Viewport Width](#viewport-width)   | `VIEWPORT_WIDTH`  | `${viewportWidth}`  |
 
@@ -100,7 +208,8 @@ The tables below list the available URL variables grouped by type of usage. Furt
 | Variable Name  | Platform Variable  | amp-analytics Variable |
 |----------------|--------------------|------------------------|
 | [Horizontal Scroll Boundary](#horizontal-scroll-boundary) | N/A | `${horizontalScrollBoundary}` |
-| [Total Engaged Time](#horizontal-scroll-boundary) | `TOTAL_ENGAGED_TIME` | `${totalEngagedTime}` |
+| [Total Engaged Time](#total-engaged-time) | `TOTAL_ENGAGED_TIME` | `${totalEngagedTime}` |
+| [Incremental Engaged Time](#incremental-engaged-time) | `INCREMENTAL_ENGAGED_TIME` | `${incrementalEngagedTime}` |
 | [Vertical Scroll Boundary](#vertical-scroll-boundary) | N/A | `${verticalScrollBoundary}` |
 
 ### Visibility
@@ -117,28 +226,52 @@ The tables below list the available URL variables grouped by type of usage. Furt
 | [Element Y](#element-y) | N/A | `${elementY}` |
 | [First Seen Time](#first-seen-time) | N/A | `${firstSeenTime}` |
 | [First Visible Time](#first-visible-time) | N/A | `${firstVisibleTime}` |
+| [Initial Scroll Depth](#initial-scroll-depth) | N/A | `${initialScrollDepth}` |
+| [Intersection Ratio](#intersection-ratio) | N/A | `${intersectionRatio}` |
+| [Intersection Rect](#intersection-rect) | N/A | `${intersectionRect}` |
 | [Last Seen Time](#last-seen-time) | N/A | `${lastSeenTime}` |
 | [Last Visible Time](#last-visible-time) | N/A | `${lastVisibleTime}` |
 | [Load Time Visibility](#load-time-visibility) | N/A | `${loadTimeVisibility}` |
 | [Max Continuous Visible Time](#max-continuous-visible-time) | N/A | `${maxContinuousVisibleTime}` |
+| [Max Scroll Depth](#max-scroll-depth) | N/A | `${maxScrollDepth}` |
 | [Max Visible Percentage](#max-visible-percentage) | N/A | `${maxVisiblePercentage}` |
 | [Min Visible Percentage](#min-visible-percentage) | N/A | `${minVisiblePercentage}` |
 | [Total Time](#total-time) | N/A | `${totalTime}` |
 | [Total Visible Time](#total-visible-time) | N/A | `${totalVisibleTime}` |
 
-### Miscellaneous 
+### Timers
+
+| Variable Name | Platform Variable | amp-analytics Variable |
+|---------------|-------------------|------------------------|
+| [Timer Duration](#timer-duration) | N/A | `${timerDuration}` |
+| [Timer Start Time](#timer-start) | N/A | `${timerStart}` |
+
+### AMP Components
+| Variable Name | Platform Variable | amp-analytics Variable | Required AMP Components
+|---------------|-------------------|------------------------|-----------------------|
+| [Variant](#experiment-variant) | `VARIANT` | N/A | [`<amp-experiment>`](https://github.com/ampproject/amphtml/blob/master/extensions/amp-experiment/amp-experiment.md) |
+| [Variants](#experiment-variants) | `VARIANTS` | N/A | [`<amp-experiment>`](https://github.com/ampproject/amphtml/blob/master/extensions/amp-experiment/amp-experiment.md) |
+| [Geolocation](#geolocation) | `AMP_GEO` | `${ampGeo}` | [`<amp-geo>`](https://github.com/ampproject/amphtml/blob/master/extensions/amp-geo/amp-geo.md) |
+| [User Location](#user-location) | `AMP_USER_LOCATION` | `${ampUserLocation}` | [`<amp-user-location>`](https://github.com/ampproject/amphtml/blob/master/extensions/amp-user-location/amp-user-location.md) |
+
+
+### Miscellaneous
 
 |  Variable Name | Platform Variable  | amp-analytics Variable |
 |----------------|--------------------|------------------------|
 | [AMP Version](#amp-version) | `AMP_VERSION` | `${ampVersion}` |
+| [AMP State](#amp-state) | `AMP_STATE` | `${ampState}` |
 | [Background State](#background-state) | `BACKGROUND_STATE` | `${backgroundState}` |
 | [Client ID](#client-id) | `CLIENT_ID` | `${clientId}` |
 | [Extra URL Parameters](#extra-url-parameters) | N/A | `${extraUrlParams}` |
 | [Page View ID](#page-view-id) | `PAGE_VIEW_ID` | `${pageViewId}` |
+| [Page View ID 64](#page-view-id-64) | `PAGE_VIEW_ID_64` | `${pageViewId64}` |
 | [Query Parameter](#query-parameter) | `QUERY_PARAM` | `${queryParam}` |
 | [Random](#random) | `RANDOM` | `${random}` |
 | [Request Count](#request-count) | N/A | `${requestCount}` |
 | [Timestamp](#timestamp) | `TIMESTAMP` | `${timestamp}` |
+| [Error Name](#error-name) | N/A | `${errorName}` |
+| [Error Message](#error-message) | N/A | `${errorMessage}` |
 
 ### Variable Descriptions
 
@@ -181,6 +314,19 @@ Provides the AMP document's URL. The URL contains the scheme, domain, port and f
 * **amp-analytics variable**: `${ampdocUrl}`
   * Example value: `http://example.com:8000/examples/analytics.amp.html`
 
+#### AMP State
+
+Pulls a value from the provided AMP state key.
+
+* **platform variable**: `AMP_STATE`
+  *  Example: <br>
+  ```html
+  <amp-pixel src="https://foo.com/pixel?bar=AMP_STATE(foo.bar)"></amp-pixel>
+  ```
+  If `foo.bar` exists in the AMP state, the corresponding value is inserted into the pixel src.
+* **amp-analytics variable**: `${ampState}`
+  * Example value: `${ampState(foo.bar)}`: If `foo.bar` is available, its associated value is returned; otherwise, null is returned.
+
 #### AMP Version
 
 Provides a string with the AMP release version.
@@ -204,7 +350,7 @@ Provides the screen height in pixels available for the page rendering. This valu
   ```
 * **amp-analytics variable**: `${availableScreenHeight}`
   * Example value: `1480`
-  
+
 #### Available Screen Width
 
 Provides the screen width in pixels available for the page rendering. This value can be slightly more or less than the actual viewport height due to various browser quirks.
@@ -326,21 +472,22 @@ Provides a per document-source-origin (the origin of the website where you publi
 
 * **platform variable**: `CLIENT_ID`
   *  Example: <br>
+
   ```html
   <amp-pixel src="https://foo.com/pixel?cid=CLIENT_ID(cid-scope-cookie-fallback-name)"></amp-pixel>
 
-<amp-user-notification
-    layout=nodisplay
-    id="user-consent"
-    data-show-if-href="https://foo.com/api/show"
-    data-dismiss-href="https://foo.com/api/dismissed">
-    This site uses cookies to personalize content.
-    <a href="">Learn more.</a>
-   <button on="tap:user-consent.dismiss">I accept</button>
-</amp-user-notification>
+  <amp-user-notification
+      layout=nodisplay
+      id="user-consent"
+      data-show-if-href="https://foo.com/api/show"
+      data-dismiss-href="https://foo.com/api/dismissed">
+      This site uses cookies to personalize content.
+      <a href="">Learn more.</a>
+     <button on="tap:user-consent.dismiss">I accept</button>
+  </amp-user-notification>
 
-<!-- cid is not provided until `user-consent` is dismissed -->
-<amp-pixel src="https://foo.com/pixel?cid=CLIENT_ID(cid-scope-cookie-fallback-name,user-consent-id)"></amp-pixel>
+  <!-- Client ID is not provided until `user-consent` is dismissed -->
+  <amp-pixel src="https://foo.com/pixel?cid=CLIENT_ID(cid-scope-cookie-fallback-name,user-consent)"></amp-pixel>
   ```
 * **amp-analytics variable**: `${clientId}`
   * Example usage: `${clientId(foo)}`
@@ -350,9 +497,9 @@ Provides a per document-source-origin (the origin of the website where you publi
 
 You can pass the following arguments into the Client ID variable like a function. Spaces between arguments and values are not allowed.
 
-  - `cid scope` (Required): The name of the fallback cookie when the document
-    is not served by an AMP proxy.
+  - `cid scope` (Required): The namespace for the Client ID.
   - `amp-user-notification id` (Optional): Use this argument to make the Client ID substitution dependent on the dismissal of a user notification shown to the visitor of the page. In amp-analytics, this is the same as using the [`data-consent-notification-id`](../extensions/amp-analytics/amp-analytics.md) attribute -- you may choose to use either one for the amp-analytics component.
+  - `cookie name` (Optional): The name of the fallback cookie when the document is not served by an AMP proxy. If not provided, `cid scope` will be used as the cookie name.
 
 #### Content Load Time
 
@@ -366,7 +513,7 @@ Provides the time the page takes to fire the `DOMContentLoaded` event from the t
 * **amp-analytics variable**: `${contentLoadTime}`
   * Example value: `40`
 
-#### Counter 
+#### Counter
 
 Use `COUNTER(name)` to generate an index for the given request. Counts start at 1 and are per given `name`.
 
@@ -449,6 +596,50 @@ Provides the absolute Y coordinate of the top edge of the element specified by `
 * **platform variable**: N/A
 * **amp-analytics variable**: `${elementY}`
 
+#### Error Message
+
+Provides the message of the error that triggered an user error event. This variable is only available in a `trigger` of type `user-error`
+
+* **platform variable**: N/A
+* **amp-analytics variable**: `${errorMessage}`
+  * Example value: `Invalid multi-size data format`
+
+#### Experiment Variant
+
+Provide the allocated variant information from the `<amp-experiment>` component. The allocated variant name is returned. The variable resolves to string `none` if no variant is allocated.
+
+* **platform variable**: `VARIANT(experiment)`
+* **amp-analytics variable**: N/A
+
+#### Experiment Variants
+
+Provide the all variants information from the `<amp-experiment>` component. The variable will be serialized in the following format.
+
+* **platform variable**: `VARIANT(experiment)`
+* **amp-analytics variable**: N/A
+  * Example value: `{experiment1}.{variant}!{experiment2}.{variant}...`
+
+#### Error Name
+
+Provides the name of the error that triggered an user error event. This variable is only available in a `trigger` of type `user-error`
+
+* **platform variable**: N/A
+* **amp-analytics variable**: `${errorName}`
+  * Example value: `AMP-AD`
+
+#### External Referrer
+
+Provides the referrer where the user came from. Similar to [Document Referrer](#document_referrer), but the value is empty if user is navigated from same domain or the corresponding CDN proxy domain.
+Analytics vendor might prefer this value to Document Referrer for better session stitching, depending on the server side implementation.
+
+* **platform variable**: `EXTERNAL_REFERRER`
+  *  Example: <br>
+  ```html
+  <amp-pixel src="https://foo.com/pixel?referrer=EXTERNAL_REFERRER"></amp-pixel>
+  ```
+* **amp-analytics variable**: `${externalReferrer}`
+  * Example value: `https://www.google.com`
+
 #### Extra URL Parameters
 
 Provides all the parameters that are defined in the [`extraUrlParams`](../extensions/amp-analytics/amp-analytics.md#extra-url-params) block of the amp-analytics config as a variable. If you use the `extraUrlParams`  variable, the parameters are not appended to the end of the URL.
@@ -459,17 +650,61 @@ Provides all the parameters that are defined in the [`extraUrlParams`](../extens
 
 #### First Seen Time
 
-Provides the time when at least 1px of the element is on the screen for the first time since the trigger is registered by `amp-analytics`.
+Provides the time when at least 1px of the element is on the screen for the first time since the page has become visible.
 
 * **platform variable**: N/A
 * **amp-analytics variable**: `${firstSeenTime}`
 
 #### First Visible Time
 
-Provides the time when the element met visibility conditions for the first time since the trigger is registered by `amp-analytics`.
+Provides the time when the element met visibility conditions for the first time since the page has become visible.
 
 * **platform variable**: N/A
 * **amp-analytics variable**: `${firstVisibleTime}`
+
+#### Geolocation
+
+Provides the approximate, country level, location of the user provided by the [`amp-geo`](../extensions/amp-geo/amp-geo.md#variable-substitution) extension.
+
+* **platform variable**: AMP_GEO
+  *  Example: <br>
+  ```html
+   <amp-pixel src="https://foo.com/pixel?domInteractiveTime=AMP_GEO"></amp-pixel>
+  ```
+* **amp-analytics variable**: `${ampGeo}`
+  * Example value: `ca`
+
+#### User Location
+
+`AMP_USER_LOCATION` and `AMP_USER_LOCATION_POLL` provide the latitude and longitude coordinates exposed by [`amp-user-location`](../extensions/amp-user-location/amp-user-location.md#variable-substitution) extension. Note that this data is `undefined` until the user has approved location access. The `POLL` variant will not resolve until the user has interacted with a UI element that requests their location.
+
+* **platform variable**: `AMP_USER_LOCATION`
+  *  Example: <br>
+  ```html
+   <!--
+     When the user encounters the pixel, the location will be sent
+     if the user has approved through the amp-user-location component.
+     If the user has not approved, the pixel will send the request
+     with the location as the empty string.
+    -->
+   <amp-pixel src="https://foo.com/pixel?location=AMP_USER_LOCATION"></amp-pixel>
+  ```
+* **platform variable**: `AMP_USER_LOCATION_POLL`
+*  Example: <br>
+```html
+  <!--
+    When the user encounters the pixel, the location will not be sent
+    until the user has requested their location  through the amp-user-location
+    component. If the user does not approve, the pixel will not send the
+    request. If the user denies, the pixel will send the empty string.
+  -->
+  <amp-pixel src="https://foo.com/pixel?location=AMP_USER_LOCATION_POLL"></amp-pixel>
+```
+* **amp-analytics variable**: `${ampUserLocation}`
+  * Example value: `40.712776,-74.005974`
+* **amp-analytics variable**: `${ampUserLocationPoll}`
+  * Example value: `40.712776,-74.005974`
+
 
 #### Horizontal Scroll Boundary
 
@@ -478,23 +713,78 @@ Provides the horizontal scroll boundary that triggered a scroll event. This vari
 * **platform variable**: N/A
 * **amp-analytics variable**: `${horizontalScrollBoundary}`
 
+#### HTML Attributes
+
+Provides values of attributes of HTML elements inside of an amp-ad tag which match a given CSS selector.
+This only allows an amp-analytics tag to query attributes of HTML elements loaded by that amp-analytics tag's parent
+amp-ad tag. It will not allow a publisher to obtain information about the content of an ad, nor will it allow metrics
+of one ad to be seen by the provider of another ad on the page.
+
+* **platform variable**: N/A
+* **amp-analytics variable**: `${htmlAttr}`
+
+Example:
+```
+"requests": {
+    "sample_visibility_request": "//somewhere/imgData=${htmlAttr(img,src,decoding)}"
+},
+```
+This will return the "src" and "decoding" attributes of img tags in the ad.
+
+Caveats:
+* If the CSS selector matches 20 or more elements, an empty array will be returned. This is because traversing a
+large list of elements is inefficient.
+* Attributes of at most 10 elements will be returned.
+* If an element matches the CSS selector but has none of the requested attributes, that element will not be
+represented in the returned array.
+* The returned values will be in the form of a URL encoded JSON array of objects wherein the object keys are the
+requested attribute names and the object values are the elements' values for those attributes.
+* The CSS selector may contain only letters (upper- and/or lower-case), numbers, hyphens, underscores, and periods.
+[Issue #14252](https://github.com/ampproject/amphtml/issues/14252) has been created to address potential future demand for more complex CSS selectors.
+
+#### Initial Scroll Depth
+
+Provides the scroll depth at the time the element was loaded, relative to the target. The value returned will be top/inside/bottom, indicating whether the target was scrolled inside the viewport, was offscreen above the top of the viewport, or was offscreen below the bottom of the viewport.
+
+* **platform variable**: N/A
+* **amp-analytics variable**: `${initialScrollDepth}`
+
+#### Intersection Ratio
+
+Provides the fraction of the target that is visible. The value will be between 0.0 and 1.0, inclusive. For more information, please see the [IntersectionObserverEntry.intersectionRatio](https://developer.mozilla.org/en-US/docs/Web/API/IntersectionObserverEntry/intersectionRatio) API documentation.
+
+* **platform variable**: N/A
+* **amp-analytics variable**: `${intersectionRatio}`
+
+#### Intersection Rect
+
+Provides the bounds of the rectangle defining the portion of the selected element that is visible. For more information, please see the [IntersectionObserverEntry.intersectionRect](https://developer.mozilla.org/en-US/docs/Web/API/IntersectionObserverEntry/intersectionRect)  API documentation.
+
+Example value:
+```javascript
+{"left":0,"top":74,"width":256,"height":226,"bottom":300,"right":256,"x":0,"y":74}
+```
+
+* **platform variable**: N/A
+* **amp-analytics variable**: `${intersectionRect}`
+
 #### Last Seen Time
 
-Provides the time when at least 1px of the element is on the screen for the last time since javascript load.
+Provides the time when at least 1px of the element is on the screen for the last time since the page has become visible.
 
 * **platform variable**: N/A
 * **amp-analytics variable**: `${lastSeenTime}`
 
 #### Last Visible Time
 
-Provides the time when the element met visibility conditions for the last time since javascript load.
+Provides the time when the element met visibility conditions for the last time since the page has become visible.
 
 * **platform variable**: N/A
 * **amp-analytics variable**: `${lastVisibleTime}`
 
 #### Load Time Visibility
 
-Provides the percentage of element visible in the viewport at load time. This variable assumes that the page is scrolled to top.
+Provides the percentage of element visible in the viewport when the page has first become visible. This variable assumes that the page is scrolled to top.
 
 * **platform variable**: N/A
 * **amp-analytics variable**: `${loadTimeVisibility}`
@@ -505,6 +795,13 @@ Provides the maximum amount of continuous time an element has met the `visibilit
 
 * **platform variable**: N/A
 * **amp-analytics variable**: `${maxContinuousVisibleTime}`
+
+#### Max Scroll Depth
+
+Provides the maximum amount that the user has scrolled down the page, relative to the target. The value returned will be top/inside/bottom, indicating whether the target was scrolled inside the viewport, was offscreen above the top of the viewport, or was offscreen below the bottom of the viewport.
+
+* **platform variable**: N/A
+* **amp-analytics variable**: `${maxScrollDepth}`
 
 #### Max Visible Percentage
 
@@ -605,6 +902,18 @@ Provides a string that is intended to be random and likely to be unique per URL,
 * **amp-analytics variable**: `${pageViewId}`
   * Example value: `978`
 
+#### Page View ID 64
+
+Provides a string that is intended to be random with a high entropy and likely to be unique per URL, user and day.
+
+* **platform variable**: `PAGE_VIEW_ID_64`
+  *  Example: <br>
+  ```html
+  <amp-pixel src="https://foo.com/pixel?pid=PAGE_VIEW_ID_64"></amp-pixel>
+  ```
+* **amp-analytics variable**: `${pageViewId64}`
+  * Example value: `U6XEpUs3yaeQyR2DKATQH1pTZ6kg140fvuLbtl5nynb`
+
 #### Query Parameter
 
 Pulls a value from the provided query string parameter.
@@ -612,7 +921,7 @@ Pulls a value from the provided query string parameter.
 * **platform variable**: `QUERY_PARAM`
   *  Example: <br>
   ```html
-  <amp-pixel src="https://foo.com/pixel?bar=QUERY_PARAM(baz,biz)"</amp-pixel>
+  <amp-pixel src="https://foo.com/pixel?bar=QUERY_PARAM(baz,biz)"></amp-pixel>
   ```
   If a `baz` query string parameter is provided, the corresponding value is inserted into the pixel src; otherwise, the default `biz` is used.
 * **amp-analytics variable**: `${queryParam}`
@@ -682,10 +991,10 @@ Provides the screen height in pixels. The value is retrieved from `window.screen
   ```
 * **amp-analytics variable**: `${screenHeight}`
   * Example value: `1600`
-  
+
 #### Screen Width
 
-Provides the screen height in pixels. The value is retrieved from `window.screen.width`.
+Provides the screen width in pixels. The value is retrieved from `window.screen.width`.
 
 * **platform variable**: `SCREEN_WIDTH`
   *  Example: <br>
@@ -730,7 +1039,7 @@ Provides the number of pixels that the user has scrolled from top.
   ```
 * **amp-analytics variable**: `${scrollTop}`
   * Example value: `0`
-  
+
 #### Scroll Width
 
 Provides the total width of the page in pixels.
@@ -836,7 +1145,7 @@ Provides the title of the current document.
 
 #### Timestamp
 
-Provides the number of seconds that have elapsed since 1970. (Epoch time)
+Provides the number of milliseconds that have elapsed since 1970. (Epoch time)
 
 * **platform variable**: `TIMESTAMP`
   *  Example: <br>
@@ -858,6 +1167,18 @@ Provides the user's time-zone offset from UTC, in minutes.
 * **amp-analytics variable**: `${timezone}`
   * Example value: `480` for [Pacific Standard Time](https://en.wikipedia.org/wiki/Pacific_Time_Zone).
 
+#### Timezone Code
+
+Provides the user's IANA time-zone code (if available).
+
+* **platform variable**: `TIMEZONE_CODE`
+  *  Example: <br>
+  ```html
+  <amp-pixel src="https://foo.com/pixel?tz_code=TIMEZONE_CODE"></amp-pixel>
+  ```
+* **amp-analytics variable**: `${timezoneCode}`
+  * Example value: `Europe/Rome`.
+
 #### Total Engaged Time
 
 Provides the total time (in seconds) the user has been engaged with the page since the page first became visible in the viewport. Total engaged time will be 0 until the page first becomes visible. This variable requires the [amp-analytics](../extensions/amp-analytics/amp-analytics.md) extension to be present on the page.
@@ -866,9 +1187,17 @@ Provides the total time (in seconds) the user has been engaged with the page sin
 * **amp-analytics variable**: `${totalEngagedTime}`
   * Example value: `36`
 
+#### Incremental Engaged Time
+
+Provides the time (in seconds) the user has been engaged with the page since the last time it was reset. It takes two arguments. The first is the name of the timer, the second is whether or not to reset it (it is optional and defaults to true). Incremental engaged time will be 0 until the page first becomes visible. This variable requires the [amp-analytics](../extensions/amp-analytics/amp-analytics.md) extension to be present on the page.
+
+* **platform variable**: `INCREMENTAL_ENGAGED_TIME`
+* **amp-analytics variable**: `${incrementalEngagedTime(foo,false)}`
+  * Example value: `36`
+
 #### Total Time
 
-Provides the total time from the time page was loaded to the time a ping was sent out. The value is calculated from the time document became interactive.
+Provides the total time from the time page has become visible to the time a ping was sent out. Only applicable to visible trigger events.
 
 * **platform variable**: N/A
 * **amp-analytics variable**: `${totalTime}`
@@ -879,6 +1208,32 @@ Provides the total time for which the element has met the `visiblitySpec `condit
 
 * **platform variable**: N/A
 * **amp-analytics variable**: `${totalVisibleTime}`
+
+#### Timer Duration
+
+Provides the duration of the triggered timer since last start or interval in milliseconds. For timers stopped before a full interval completes, this will report the partial time.
+
+* **platform variable**: N/A
+* **amp-analytics variable**: `${timerDuration}`
+
+#### Timer Start Time
+
+Provides the start time of the triggered timer in milliseconds from epoch. Resets only on timer start.
+
+* **platform variable**: N/A
+* **amp-analytics variable**: `${timerStart}`
+
+#### User Agent
+
+Provides a string representing the user agent of the requesting software, usually tells about user's browser operating system.
+
+* **platform variable**: `USER_AGENT`
+  *  Example: <br>
+  ```html
+  <amp-pixel src="https://foo.com/pixel?sh=USER_AGENT"></amp-pixel>
+  ```
+* **amp-analytics variable**: `${userAgent}`
+  * Example value: `Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0`
 
 #### Vertical Scroll Boundary
 
@@ -909,7 +1264,7 @@ Provides the viewport height in pixels available for the page rendering. In cont
   <amp-pixel src="https://foo.com/pixel?viewportHeight=VIEWPORT_HEIGHT"></amp-pixel>
   ```
 * **amp-analytics variable**: `${viewportHeight}`
-  * Example value: `1600` 
+  * Example value: `1600`
 
 #### Viewport Width
 
@@ -921,4 +1276,4 @@ Provides the viewport width in pixels available for the page rendering. In contr
   <amp-pixel src="https://foo.com/pixel?viewportHeight=VIEWPORT_HEIGHT"></amp-pixel>
   ```
 * **amp-analytics variable**: `${viewportWidth}`
-  * Example value: `2560` 
+  * Example value: `2560`

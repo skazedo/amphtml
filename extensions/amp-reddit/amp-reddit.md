@@ -1,3 +1,10 @@
+---
+$category@: social
+formats:
+  - websites
+teaser:
+  text: Displays a Reddit comment or post embed.
+---
 <!---
 Copyright 2016 The AMP HTML Authors. All Rights Reserved.
 
@@ -14,34 +21,32 @@ See the License for the specific language governing permissions and
 limitations under the License.
 -->
 
-# <a name="amp-reddit"></a> `amp-reddit`
+# amp-reddit
+
+Displays a Reddit comment or post embed.
 
 <table>
-  <tr>
-    <td width="40%"><strong>Description</strong></td>
-    <td>Displays a Reddit comment or post embed.</td>
-  </tr>
-  <tr>
-    <td width="40%"><strong>Availability</strong></td>
-    <td>Stable</td>
-  </tr>
   <tr>
     <td width="40%"><strong>Required Script</strong></td>
     <td><code>&lt;script async custom-element="amp-reddit" src="https://cdn.ampproject.org/v0/amp-reddit-0.1.js">&lt;/script></code></td>
   </tr>
   <tr>
-    <td class="col-fourty"><strong><a href="https://www.ampproject.org/docs/guides/responsive/control_layout.html">Supported Layouts</a></strong></td>
+    <td class="col-fourty"><strong><a href="https://amp.dev/documentation/guides-and-tutorials/develop/style_and_layout/control_layout">Supported Layouts</a></strong></td>
     <td>fill, fixed, fixed-height, flex-item, responsive</td>
   </tr>
   <tr>
     <td width="40%"><strong>Examples</strong></td>
-    <td><a href="https://ampbyexample.com/components/amp-reddit/">amp-reddit.html</a><br /><a href="https://github.com/ampproject/amphtml/blob/master/examples/reddit.amp.html">reddit.amp.html</a></td>
+    <td>See AMP By Example's <a href="https://amp.dev/documentation/examples/components/amp-reddit/">amp-reddit example</a>.</td>
   </tr>
 </table>
 
-## Example
+[TOC]
 
-Post: `data-embedtype="post"`
+## Examples
+
+Use the `amp-reddit` component to embed a Reddit post or comment.
+
+**Example: Embedding a Reddit post**
 
 ```html
 <amp-reddit
@@ -49,11 +54,11 @@ Post: `data-embedtype="post"`
   width="300"
   height="400"
   data-embedtype="post"
-  data-src="https://www.reddit.com/r/me_irl/comments/52rmir/me_irl/?ref=share&amp;ref_source=embed"
-></amp-reddit>
+  data-src="https://www.reddit.com/r/me_irl/comments/52rmir/me_irl/?ref=share&amp;ref_source=embed">
+</amp-reddit>
 ```
 
-Comment: `data-embedtype="comment"`
+**Example: Embedding a Reddit comment**
 
 ```html
 <amp-reddit
@@ -65,36 +70,43 @@ Comment: `data-embedtype="comment"`
   data-uuid="b1246282-bd7b-4778-8c5b-5b08ac0e175e"
   data-embedcreated="2016-09-26T21:26:17.823Z"
   data-embedparent="true"
-  data-embedlive="true"
-></amp-reddit>
+  data-embedlive="true">
+</amp-reddit>
 ```
 
 ## Attributes
 
-**data-embedtype**
-
-Required. The type of embed, either `post` or `comment`.
-
-**data-src**
-
-Required. The permamlink uri for the post or comment.
-
-**data-uuid**
-
-Supported when `data-embedtype` is `comment`. The provided UUID for the comment embed.
-
-**data-embedcreated**
-
-Supported when `data-embedtype` is `comment`. The datetime string for the comment embed.
-
-**data-embedparent**
-
-Supported when `data-embedtype` is `comment`. Flag if the parent comment should be included in the embed.
-
-**data-embedlive**
-
-Supported when `data-embedtype` is `comment`. Flag if the embedded comment should update if the original comment is updated.
+<table>
+  <tr>
+    <td width="40%"><strong>data-embedtype (required)</strong></td>
+    <td>The type of embed, either <code>post</code> or <code>comment</code>.</td>
+  </tr>
+  <tr>
+    <td width="40%"><strong>data-src (required)</strong></td>
+    <td>The permamlink uri for the post or comment.</td>
+  </tr>
+  <tr>
+    <td width="40%"><strong>data-uuid</strong></td>
+    <td>The provided UUID for the comment embed. Supported when <code>data-embedtype</code> is <code>comment</code>.</td>
+  </tr>
+  <tr>
+    <td width="40%"><strong>data-embedcreated</strong></td>
+    <td>The datetime string for the comment embed. Supported when <code>data-embedtype</code> is <code>comment</code>.</td>
+  </tr>
+  <tr>
+    <td width="40%"><strong>data-embedparent</strong></td>
+    <td>The datetime string for the comment embed. Supported when <code>data-embedtype</code> is <code>comment</code>.</td>
+  </tr>
+  <tr>
+    <td width="40%"><strong>data-embedlive</strong></td>
+    <td>Indicates whether the embedded comment should update if the original comment is updated. Supported when <code>data-embedtype</code> is <code>comment</code>.</td>
+  </tr>
+  <tr>
+    <td width="40%"><strong>common attributes</strong></td>
+    <td>This element includes <a href="https://amp.dev/documentation/guides-and-tutorials/learn/common_attributes">common attributes</a> extended to AMP components.</td>
+  </tr>
+</table>
 
 ## Validation
 
-See [amp-reddit rules](https://github.com/ampproject/amphtml/blob/master/extensions/amp-reddit/0.1/validator-amp-reddit.protoascii) in the AMP validator specification.
+See [amp-reddit rules](https://github.com/ampproject/amphtml/blob/master/extensions/amp-reddit/validator-amp-reddit.protoascii) in the AMP validator specification.

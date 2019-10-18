@@ -19,19 +19,17 @@ limitations under the License.
 ## Example
 
 ```html
-<amp-ad width=533 height=300
+<amp-ad width="533" height="300"
     type="distroscale"
     layout="responsive"
     data-pid="1"
-    data-zid="8710">
 </amp-ad>
 ```
 
 ## Configuration
 
-For semantics of configuration, please [contact DistroScale](http://www.distroscale.com).
+For configuration semantics, please [contact DistroScale](http://www.distroscale.com).
 
-__Required:__
+### Required parameters
 
-- `data-pid` - Partner ID
-- `data-zid` - Zone ID
+- `data-pid`: Partner ID
